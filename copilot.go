@@ -50,7 +50,8 @@ type LLM struct {
 	copilotHome string
 	sessionEnv  []string
 	providers   []agent.ProviderConfig
-	activeIdx   int // -1 = no provider set (use env defaults)
+	activeIdx   int                   // -1 = no provider set (use env defaults)
+	storage     agent.KVStoreProvider // injected by Engine for interaction logging
 
 	mu sync.Mutex
 }
@@ -119,7 +120,9 @@ func (a *LLM) StartSession(ctx context.Context, sessionID string) (agent.AgentSe
 	}
 	a.mu.Unlock()
 
-	return newCopilotSession(ctx, workDir, model, mode, sessionID, extraEnv), nil
+	sess := newCopilotSession(ctx, workDir, model, mode, sessionID, extraEnv)
+	sess.storage = a.storage
+	return sess, nil
 }
 
 func (a *LLM) Stop() error { return nil }

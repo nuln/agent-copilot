@@ -34,6 +34,15 @@ type copilotSession struct {
 	alive    atomic.Bool
 
 	sessionID atomic.Value // stores string — Copilot session ID
+
+	// Interaction recording fields
+	logMu            sync.Mutex
+	traceID          string
+	storage          agent.KVStoreProvider
+	recordStartTime  int64
+	recordedThinking strings.Builder
+	recordedResponse strings.Builder
+	recordedTools    []copilotToolCallLog
 }
 
 func newCopilotSession(ctx context.Context, workDir, model, mode, resumeID string, extraEnv []string) *copilotSession {
@@ -236,6 +245,7 @@ func (cs *copilotSession) handleMessageDelta(raw map[string]any) {
 	}
 
 	evt := agent.Event{Type: agent.EventText, Content: content}
+	cs.recordEvent(evt)
 	select {
 	case cs.events <- evt:
 	case <-cs.ctx.Done():
@@ -253,6 +263,7 @@ func (cs *copilotSession) handleReasoningDelta(raw map[string]any) {
 	}
 
 	evt := agent.Event{Type: agent.EventThinking, Content: content}
+	cs.recordEvent(evt)
 	select {
 	case cs.events <- evt:
 	case <-cs.ctx.Done():
@@ -283,6 +294,7 @@ func (cs *copilotSession) handleMessage(raw map[string]any) {
 			ToolInput:    input,
 			ToolInputRaw: args,
 		}
+		cs.recordEvent(evt)
 		select {
 		case cs.events <- evt:
 		case <-cs.ctx.Done():
@@ -382,6 +394,7 @@ func (cs *copilotSession) currentSessionID() string {
 }
 
 func (cs *copilotSession) Close() error {
+	cs.finalizeInteractionLog()
 	cs.alive.Store(false)
 	cs.cancel()
 	done := make(chan struct{})
